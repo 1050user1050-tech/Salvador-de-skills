@@ -1,0 +1,6 @@
+{
+  "name": "Prompt & Skill Manager",
+  "description": "Gerenciador desktop local para Prompts e Skills de IA com histórico de versões, tags, pastas e sincronização Git.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
