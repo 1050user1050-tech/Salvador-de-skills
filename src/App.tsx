@@ -10,6 +10,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { SkillFormModal } from "./components/SkillFormModal";
 import { FolderFormModal } from "./components/FolderFormModal";
 import { PromptPlaygroundModal } from "./components/PromptPlaygroundModal";
+import { Dashboard } from "./components/Dashboard";
 import { Sparkles, FolderOpen, FileCode, Layers, Plus } from "lucide-react";
 import { ACCENT_COLORS } from "./utils/accentColors";
 
@@ -255,12 +256,10 @@ export default function App() {
   // Handler: Delete Skill
   const handleDeleteSkill = async (relPath: string) => {
     await StorageService.deleteSkill(relPath);
-    if (selectedSkillRelPath === relPath) {
-      setSelectedSkill(null);
-      setSelectedSkillRelPath("");
-    }
+    setSelectedSkill(null);
+    setSelectedSkillRelPath("");
     await loadTree();
-    addToast("info", "Skill Excluída", "O arquivo JSON foi removido do diretório.");
+    addToast("info", "Skill Excluída", "A pasta da skill e todo o seu conteúdo foram excluídos com sucesso.");
   };
 
   // Handler: Create Folder
@@ -401,6 +400,10 @@ export default function App() {
           selectedFolderPath={selectedFolderPath}
           accentColor={themeConfig.accent}
           gitConfig={gitConfig}
+          onGoToDashboard={() => {
+            setSelectedSkill(null);
+            setSelectedSkillRelPath("");
+          }}
           onSelectSkill={handleSelectSkill}
           onSelectFolder={handleSelectFolder}
           onCreateSkillInFolder={(folderRel) => {
@@ -443,25 +446,14 @@ export default function App() {
               }
             />
           ) : (
-            /* Empty State when no skill is selected */
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4 max-w-md mx-auto">
-              <div className={`p-4 rounded-2xl ${accent.badgeBg} ${accent.primaryText} shadow-md`}>
-                <Sparkles className="w-8 h-8" />
-              </div>
-              <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                Nenhuma Skill Selecionada
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Selecione uma skill na árvore da barra lateral ou crie um novo arquivo de prompt em formato `.json` para começar a editar e gerenciar suas versões.
-              </p>
-              <button
-                onClick={() => setIsNewSkillModalOpen(true)}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold text-white shadow-xs ${accent.primaryBg} transition flex items-center gap-2`}
-              >
-                <Plus className="w-4 h-4" />
-                Criar Primeira Skill
-              </button>
-            </div>
+            /* Dashboard / Home Screen when no skill is selected */
+            <Dashboard
+              tree={tree}
+              accentColor={themeConfig.accent}
+              onSelectSkill={handleSelectSkill}
+              onOpenNewSkillModal={() => setIsNewSkillModalOpen(true)}
+              onDeleteSkill={handleDeleteSkill}
+            />
           )}
         </main>
       </div>

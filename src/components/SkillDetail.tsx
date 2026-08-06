@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Copy,
   FileCode,
@@ -14,10 +14,17 @@ import {
   Share2,
   FileText,
   Github,
-  ExternalLink
+  ExternalLink,
+  Paperclip,
+  Image as ImageIcon,
+  Upload,
+  Eye,
+  X,
+  Loader2
 } from "lucide-react";
 import { Skill, SkillVersion } from "../types/skill";
 import { ACCENT_COLORS } from "../utils/accentColors";
+import { StorageService } from "../services/storageService";
 import { PromptEditor } from "./PromptEditor";
 import { VersionDiffViewer } from "./VersionDiffViewer";
 
@@ -57,7 +64,53 @@ export const SkillDetail: React.FC<SkillDetailProps> = ({
   const [isCopiedPrompt, setIsCopiedPrompt] = useState(false);
   const [isCopiedJson, setIsCopiedJson] = useState(false);
 
+  // Asset / Attachments state
+  const [assets, setAssets] = useState<string[]>(skill.assets || []);
+  const [isUploading, setIsUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Update assets list if skill changes
+  useEffect(() => {
+    setAssets(skill.assets || []);
+    setSelectedVersionIndex(skill.versoes.length > 0 ? skill.versoes.length - 1 : 0);
+  }, [skill.id, skill.relativePath, skill.assets]);
+
   const currentVersion: SkillVersion | undefined = skill.versoes[selectedVersionIndex] || skill.versoes[0];
+
+  // Image Upload Handler
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const targetRelPath = skill.relativePath || relativePath;
+    const res = await StorageService.uploadAsset(targetRelPath, file);
+    setIsUploading(false);
+
+    if (res.success && res.fileName) {
+      if (!assets.includes(res.fileName)) {
+        setAssets((prev) => [...prev, res.fileName!]);
+      }
+    } else {
+      alert(res.error || "Erro ao anexar imagem");
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // Image Delete Handler
+  const handleDeleteAsset = async (fileName: string) => {
+    if (!confirm(`Deseja remover o anexo "${fileName}"?`)) return;
+
+    const targetRelPath = skill.relativePath || relativePath;
+    const success = await StorageService.deleteAsset(targetRelPath, fileName);
+    if (success) {
+      setAssets((prev) => prev.filter((a) => a !== fileName));
+    }
+  };
 
   const handleCopyPrompt = () => {
     if (currentVersion?.conteudo_do_prompt) {
@@ -236,6 +289,103 @@ export const SkillDetail: React.FC<SkillDetailProps> = ({
         </div>
       </div>
 
+      {/* Section: Anexos e Imagens da Skill (assets/ folder) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-indigo-500" />
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+              Anexos e Imagens da Skill (`assets/`)
+            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
+              {assets.length} {assets.length === 1 ? "arquivo" : "arquivos"}
+            </span>
+          </div>
+
+          <div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold text-white ${accent.primaryBg} hover:opacity-90 transition flex items-center gap-1.5 cursor-pointer shadow-2xs`}
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Enviando...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Anexar Imagem</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {assets.length === 0 ? (
+          <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center bg-slate-50/50 dark:bg-slate-950/50 space-y-1">
+            <Paperclip className="w-5 h-5 mx-auto text-slate-400" />
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+              Nenhuma imagem anexada a esta skill.
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Clique em <strong className="text-slate-600 dark:text-slate-300">Anexar Imagem</strong> para salvar capturas de tela, diagramas ou exemplos na pasta <code className="font-mono text-indigo-500">assets/</code> da skill.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {assets.map((fileName) => {
+              const imgUrl = StorageService.getAssetUrl(skill.relativePath || relativePath, fileName);
+              return (
+                <div
+                  key={fileName}
+                  className="group relative bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-2xs transition hover:border-indigo-500/50"
+                >
+                  <div className="h-28 w-full bg-slate-100 dark:bg-slate-800 overflow-hidden relative flex items-center justify-center">
+                    <img
+                      src={imgUrl}
+                      alt={fileName}
+                      className="w-full h-full object-cover transition group-hover:scale-105"
+                      loading="lazy"
+                    />
+                    {/* Hover Overlay Controls */}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => setPreviewImage(imgUrl)}
+                        className="p-1.5 bg-white/90 hover:bg-white text-slate-900 rounded-lg shadow-xs transition cursor-pointer"
+                        title="Visualizar em tela cheia"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAsset(fileName)}
+                        className="p-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition cursor-pointer"
+                        title="Excluir anexo"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="px-2 py-1.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
+                    <p className="text-[10px] font-mono font-medium text-slate-700 dark:text-slate-300 truncate" title={fileName}>
+                      {fileName}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Version Diff View (if toggled) */}
       {showDiffViewer && (
         <VersionDiffViewer
@@ -259,6 +409,31 @@ export const SkillDetail: React.FC<SkillDetailProps> = ({
             }
             onCopyPrompt={onCopyPromptText}
           />
+        </div>
+      )}
+
+      {/* Image Lightbox Preview Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div
+            className="relative max-w-4xl w-full max-h-[90vh] bg-slate-900 border border-slate-800 rounded-2xl p-2 overflow-hidden shadow-2xl flex flex-col items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-3 right-3 p-2 bg-slate-800/80 hover:bg-slate-800 text-white rounded-xl transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={previewImage}
+              alt="Visualização do anexo"
+              className="max-h-[80vh] w-auto max-w-full object-contain rounded-lg"
+            />
+          </div>
         </div>
       )}
     </div>

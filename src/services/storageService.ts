@@ -129,19 +129,16 @@ export class StorageService {
     return { storagePath: "Local Storage (Navegador)", tree: JSON.parse(local) };
   }
 
-  // Save/Create a Skill
+  // Save/Create a Skill (Modular folder structure)
   public static async saveSkill(relativeFolder: string, filename: string, skill: Skill): Promise<boolean> {
-    const cleanFilename = filename.endsWith(".json") ? filename : `${filename}.json`;
-    const relPath = relativeFolder ? `${relativeFolder}/${cleanFilename}` : cleanFilename;
-
     if (this.isServerAvailable) {
       try {
-        const res = await fetch("/api/skills/file", {
+        const res = await fetch("/api/skills/save-skill", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             relativeFolder,
-            filename: cleanFilename,
+            filename,
             skillData: skill
           })
         });
@@ -154,10 +151,64 @@ export class StorageService {
     }
 
     // Local Storage Fallback
+    const cleanFilename = filename.endsWith(".json") ? filename : `${filename}.json`;
+    const relPath = relativeFolder ? `${relativeFolder}/${cleanFilename}` : cleanFilename;
     const { tree } = await this.getTree();
     this.addOrUpdateNodeInTree(tree, relativeFolder, cleanFilename, relPath, skill);
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tree));
     return true;
+  }
+
+  // Upload an image asset file to skill's assets folder
+  public static async uploadAsset(relativePath: string, file: File): Promise<{ success: boolean; fileName?: string; error?: string }> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64Data = reader.result as string;
+          const res = await fetch("/api/skills/upload-asset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              relativePath,
+              fileName: file.name,
+              base64Data
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            resolve({ success: true, fileName: data.fileName });
+          } else {
+            resolve({ success: false, error: "Erro ao enviar imagem" });
+          }
+        } catch (e: any) {
+          resolve({ success: false, error: e.message });
+        }
+      };
+      reader.onerror = () => resolve({ success: false, error: "Falha ao ler o arquivo" });
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Delete an asset from skill's assets folder
+  public static async deleteAsset(relativePath: string, fileName: string): Promise<boolean> {
+    try {
+      const res = await fetch("/api/skills/asset", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ relativePath, fileName })
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // Get asset image URL
+  public static getAssetUrl(relativePath?: string, fileName?: string): string {
+    if (!relativePath || !fileName) return "";
+    return `/api/skills/asset-file?path=${encodeURIComponent(relativePath)}&file=${encodeURIComponent(fileName)}`;
   }
 
   // Delete a Skill File

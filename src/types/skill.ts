@@ -20,6 +20,7 @@ export interface Skill {
   link_github?: string;
   tags: string[];
   versoes: SkillVersion[];
+  assets?: string[]; // Attached files/images saved in assets/ folder
   relativePath?: string; // Path relative to /skills root directory
   filename?: string;
 }

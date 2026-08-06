@@ -24,6 +24,7 @@ interface SidebarProps {
   selectedFolderPath: string;
   accentColor: keyof typeof ACCENT_COLORS;
   gitConfig?: GitConfig | null;
+  onGoToDashboard?: () => void;
   onSelectSkill: (skill: Skill, relativePath: string) => void;
   onSelectFolder: (folderPath: string) => void;
   onCreateSkillInFolder: (folderRelativePath: string) => void;
@@ -47,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedFolderPath,
   accentColor,
   gitConfig,
+  onGoToDashboard,
   onSelectSkill,
   onSelectFolder,
   onCreateSkillInFolder,
@@ -124,19 +126,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside className="w-72 bg-slate-50/90 dark:bg-slate-900/90 border-r border-slate-200 dark:border-slate-800 flex flex-col h-full shrink-0 transition-all duration-300 select-none z-20">
       {/* Sidebar Header */}
       <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <div className={`p-1.5 rounded-lg text-white ${accent.primaryBg} shadow-xs`}>
+        <button
+          onClick={onGoToDashboard}
+          className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-800/60 transition group cursor-pointer text-left"
+          title="Ir para a Tela Inicial (Dashboard)"
+        >
+          <div className={`p-1.5 rounded-lg text-white ${accent.primaryBg} shadow-xs group-hover:scale-105 transition-transform`}>
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-none">
+            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-none group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition">
               Skills & Prompts
             </h2>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Diretório Local
+              Diretório Local • Dashboard
             </p>
           </div>
-        </div>
+        </button>
 
         <button
           onClick={onToggleCollapse}
