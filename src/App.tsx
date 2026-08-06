@@ -13,6 +13,11 @@ import { PromptPlaygroundModal } from "./components/PromptPlaygroundModal";
 import { Dashboard } from "./components/Dashboard";
 import { Sparkles, FolderOpen, FileCode, Layers, Plus } from "lucide-react";
 import { ACCENT_COLORS } from "./utils/accentColors";
+import {
+  DualTonePalette,
+  applyDualTonePalette,
+  loadSavedPalette
+} from "./utils/themeService";
 
 export default function App() {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
@@ -24,6 +29,19 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  // Dual-Tone Palette State
+  const [palette, setPalette] = useState<DualTonePalette>(() => loadSavedPalette());
+
+  // Apply palette initially and whenever it changes
+  useEffect(() => {
+    applyDualTonePalette(palette);
+  }, [palette]);
+
+  const handleUpdatePalette = (newPalette: DualTonePalette) => {
+    setPalette(newPalette);
+    applyDualTonePalette(newPalette);
+  };
 
   // Theme configuration state
   const [themeConfig, setThemeConfig] = useState<ThemeConfig>(() => {
@@ -103,23 +121,9 @@ export default function App() {
     });
   }, []);
 
-  // Sync theme mode (dark/light) to <html> tag
+  // Save theme config
   useEffect(() => {
     localStorage.setItem("prompt_studio_theme_config", JSON.stringify(themeConfig));
-    const root = document.documentElement;
-
-    if (themeConfig.mode === "dark") {
-      root.classList.add("dark");
-    } else if (themeConfig.mode === "light") {
-      root.classList.remove("dark");
-    } else {
-      // System mode
-      if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        root.classList.add("dark");
-      } else {
-        root.classList.remove("dark");
-      }
-    }
   }, [themeConfig]);
 
   // Extract list of existing folder relative paths for dropdowns
@@ -200,14 +204,19 @@ export default function App() {
     addToast("success", `Versão ${versionName} Atualizada!`, "As alterações no prompt foram salvas.");
   };
 
-  // Handler: Save New Version
-  const handleSaveNewVersionPrompt = async (promptText: string, newVersionName: string) => {
+  // Handler: Create New Version Prompt
+  const handleSaveNewVersionPrompt = async (
+    promptText: string,
+    newVersionName: string,
+    changelog: string
+  ) => {
     if (!selectedSkill) return;
 
     const newVersionObj = {
       versao: newVersionName,
       data: new Date().toISOString(),
-      conteudo_do_prompt: promptText
+      conteudo_do_prompt: promptText,
+      changelog: changelog || "Nova versão gravada pelo editor"
     };
 
     const updatedSkill: Skill = {
@@ -222,35 +231,7 @@ export default function App() {
     await StorageService.saveSkill(folderRelPath, filename, updatedSkill);
     setSelectedSkill(updatedSkill);
     await loadTree();
-    addToast("success", `Nova Versão ${newVersionName} Criada!`, "O histórico de versões foi atualizado.");
-  };
-
-  // Handler: Create/Save Skill from Form Modal
-  const handleSaveSkillForm = async (skillData: Partial<Skill>, folderRelPath: string, filename: string) => {
-    const fullSkill: Skill = {
-      id: skillData.id || `skill_${Date.now()}`,
-      titulo: skillData.titulo || "Nova Skill",
-      descricao: skillData.descricao || "",
-      link_github: skillData.link_github,
-      tags: skillData.tags || ["prompt"],
-      versoes: skillData.versoes || [
-        {
-          versao: "v1.0",
-          data: new Date().toISOString(),
-          conteudo_do_prompt: "Você é um especialista..."
-        }
-      ]
-    };
-
-    await StorageService.saveSkill(folderRelPath, filename, fullSkill);
-    const newRelPath = folderRelPath ? `${folderRelPath}/${filename}` : filename;
-
-    await loadTree();
-    setSelectedSkill(fullSkill);
-    setSelectedSkillRelPath(newRelPath);
-    setIsNewSkillModalOpen(false);
-    setEditingSkillMetadata(null);
-    addToast("success", "Skill Salva com Sucesso!", `Arquivo salvo em /${newRelPath}`);
+    addToast("success", `Versão ${newVersionName} Criada!`, "O histórico de versões foi atualizado com sucesso.");
   };
 
   // Handler: Delete Skill
@@ -263,130 +244,150 @@ export default function App() {
   };
 
   // Handler: Create Folder
-  const handleCreateFolder = async (parentFolder: string, folderName: string) => {
-    await StorageService.createFolder(parentFolder, folderName);
-    setIsNewFolderModalOpen(false);
+  const handleCreateFolder = async (folderPath: string) => {
+    await StorageService.createFolder(folderPath);
     await loadTree();
-    addToast("success", "Pasta Criada!", `Nova pasta criada em /${parentFolder ? parentFolder + "/" : ""}${folderName}`);
+    addToast("success", "Pasta Criada", `A pasta '${folderPath}' foi criada no repositório.`);
   };
 
   // Handler: Delete Folder
   const handleDeleteFolder = async (relPath: string) => {
     await StorageService.deleteFolder(relPath);
     await loadTree();
-    addToast("info", "Pasta Excluída", "A pasta e seu conteúdo foram removidos.");
+    addToast("info", "Pasta Removida", `A pasta '${relPath}' foi removida do sistema.`);
   };
 
-  // Handler: Rename File or Folder
-  const handleRenameItem = async (oldRelPath: string, newName: string, type: "file" | "folder") => {
-    await StorageService.renameItem(oldRelPath, newName, type);
+  // Handler: Rename File / Folder
+  const handleRenameItem = async (oldRelPath: string, newRelPath: string) => {
+    await StorageService.renameItem(oldRelPath, newRelPath);
     await loadTree();
-    addToast("success", "Item Renomeado!", `Atualizado para ${newName}`);
+    if (selectedSkillRelPath === oldRelPath) {
+      setSelectedSkillRelPath(newRelPath);
+    }
+    addToast("success", "Renomeado", "O caminho foi atualizado com sucesso.");
+  };
+
+  // Handler: Save / Create Skill from Form Modal
+  const handleSaveSkillForm = async (skillData: Partial<Skill>, folderRelPath: string) => {
+    let finalSkill: Skill;
+    let filename: string;
+
+    if (editingSkillMetadata) {
+      finalSkill = {
+        ...editingSkillMetadata,
+        ...skillData,
+      } as Skill;
+
+      const dirParts = selectedSkillRelPath.split("/");
+      filename = dirParts.pop() || `${finalSkill.id}.json`;
+    } else {
+      const id = skillData.id || `skill_${Date.now()}`;
+      finalSkill = {
+        id,
+        titulo: skillData.titulo || "Nova Skill",
+        descricao: skillData.descricao || "",
+        link_github: skillData.link_github || "",
+        tags: skillData.tags || [],
+        versoes: [
+          {
+            versao: "v1.0",
+            data: new Date().toISOString(),
+            conteudo_do_prompt: skillData.versoes?.[0]?.conteudo_do_prompt || "# Título do Prompt\n\nDescreva as instruções aqui...",
+            changelog: "Versão inicial criada"
+          }
+        ]
+      };
+      filename = `${id}.json`;
+    }
+
+    const savedRelPath = await StorageService.saveSkill(folderRelPath, filename, finalSkill);
+    await loadTree();
+    setSelectedSkill(finalSkill);
+    setSelectedSkillRelPath(savedRelPath);
+
+    setIsNewSkillModalOpen(false);
+    setEditingSkillMetadata(null);
+    addToast("success", editingSkillMetadata ? "Skill Atualizada!" : "Nova Skill Criada!", `Salvo no caminho '${savedRelPath}'.`);
+  };
+
+  // Handler: Git Manual Sync
+  const handleSyncGit = async (manual = true) => {
+    setIsSyncingGit(true);
+    try {
+      const res = await GitService.sync();
+      if (res.success) {
+        if (manual) {
+          addToast("success", "Sincronização Git Concluída!", res.message);
+        }
+        const updatedConfig = await GitService.getStatus();
+        if (updatedConfig) setGitConfig(updatedConfig);
+        await loadTree();
+      } else {
+        addToast("error", "Falha na Sincronização Git", res.message);
+      }
+    } catch (e: any) {
+      addToast("error", "Erro ao Sincronizar Git", e.message || "Tente novamente.");
+    } finally {
+      setIsSyncingGit(false);
+    }
   };
 
   // Handler: Update Git Config
-  const handleUpdateGitConfig = async (newCfg: Partial<GitConfig>) => {
-    setGitConfig((prev) => (prev ? { ...prev, ...newCfg } : (newCfg as GitConfig)));
-    const res = await GitService.saveConfig(newCfg);
-    if (res.success) {
-      addToast("success", "Configurações Git Salvas!", "Parâmetros e agendamento de sincronização atualizados.");
-      if (res.config) setGitConfig(res.config);
-    }
+  const handleUpdateGitConfig = async (cfg: Partial<GitConfig>) => {
+    const updated = await GitService.saveConfig(cfg);
+    setGitConfig(updated);
+    addToast("success", "Configurações Git Salvas", "As preferências do repositório remoto foram atualizadas.");
   };
 
-  // Handler: Git Sync Action (manual or automated)
-  const handleSyncGit = async (isAuto = false) => {
-    setIsSyncingGit(true);
-    const res = await GitService.syncRepo(
-      gitConfig?.repoUrl || "https://github.com/my-org/ai-skills-repository.git",
-      gitConfig?.branch || "main",
-      isAuto ? `Auto-Sync Agendado: (${new Date().toLocaleTimeString("pt-BR")})` : undefined
-    );
-    setIsSyncingGit(false);
-
-    if (res.success) {
-      if (isAuto) {
-        addToast("info", "Git Auto-Sync Concluído", `Sincronização agendada realizada com sucesso (${gitConfig?.autoSyncIntervalMinutes || 60}m).`);
-      } else {
-        addToast("success", "Sincronização Git Concluída!", res.message);
-      }
-      const updatedGit = await GitService.getStatus();
-      if (updatedGit) setGitConfig(updatedGit);
-    } else {
-      addToast("error", "Erro na Sincronização Git", res.message);
-    }
-  };
-
-  // Scheduled Git Auto-Sync Engine
-  useEffect(() => {
-    if (!gitConfig?.autoSync) return;
-
-    const intervalMinutes = gitConfig.autoSyncIntervalMinutes || 60; // Default 1 hour
-    const intervalMs = intervalMinutes * 60 * 1000;
-
-    const autoSyncTimer = setInterval(() => {
-      handleSyncGit(true);
-    }, intervalMs);
-
-    return () => clearInterval(autoSyncTimer);
-  }, [
-    gitConfig?.autoSync,
-    gitConfig?.autoSyncIntervalMinutes,
-    gitConfig?.repoUrl,
-    gitConfig?.branch
-  ]);
-
-  // Handler: Export Backup JSON
-  const handleExportAllJson = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(tree, null, 2));
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `skills_backup_${new Date().toISOString().slice(0, 10)}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    addToast("success", "Backup Exportado!", "Arquivo de backup em lote JSON baixado com sucesso.");
+  // Handler: Export All Data as JSON
+  const handleExportAllJson = async () => {
+    const jsonStr = await StorageService.exportAll();
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ai-skills-backup-${new Date().toISOString().split("T")[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    addToast("success", "Backup Concluído", "O arquivo JSON com todas as skills foi baixado.");
   };
 
   // Handler: Import JSON File
-  const handleImportJsonFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const content = e.target?.result as string;
-        const parsed = JSON.parse(content);
-        if (parsed.id && parsed.titulo && parsed.versoes) {
-          const filename = `${parsed.id}.json`;
-          await StorageService.saveSkill("", filename, parsed);
-          await loadTree();
-          setSelectedSkill(parsed);
-          setSelectedSkillRelPath(filename);
-          setIsSettingsOpen(false);
-          addToast("success", "Skill Importada!", `Skill '${parsed.titulo}' foi adicionada.`);
-        } else {
-          addToast("error", "Formato Inválido", "O arquivo JSON importado não possui a estrutura válida de Skill.");
+  const handleImportJsonFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item.id && item.titulo && item.versoes) {
+            await StorageService.saveSkill("", `${item.id}.json`, item);
+          }
         }
-      } catch (err) {
-        addToast("error", "Erro ao Importar", "Não foi possível ler o arquivo JSON.");
+        addToast("success", "Importação em Lote Concluída", `${parsed.length} skills foram importadas.`);
+      } else if (parsed.id && parsed.titulo && parsed.versoes) {
+        await StorageService.saveSkill("", `${parsed.id}.json`, parsed);
+        addToast("success", "Skill Importada", `A skill '${parsed.titulo}' foi adicionada ao repositório.`);
+      } else {
+        addToast("error", "Formato Inválido", "O arquivo JSON selecionado não possui a estrutura requerida de skills.");
       }
-    };
-    reader.readAsText(file);
+      await loadTree();
+    } catch (e) {
+      addToast("error", "Erro ao Ler JSON", "Verifique se o arquivo possui formatação JSON válida.");
+    }
   };
 
-  const accent = ACCENT_COLORS[themeConfig.accent] || ACCENT_COLORS.indigo;
-
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans antialiased select-none">
+    <div className="flex flex-col h-screen w-screen overflow-hidden custom-app-bg text-slate-900 dark:text-slate-100 font-sans antialiased">
       {/* Top Application Bar */}
       <Navbar
         storagePath={storagePath}
-        themeConfig={themeConfig}
-        onUpdateTheme={(cfg) => setThemeConfig((prev) => ({ ...prev, ...cfg }))}
         gitBranch={gitConfig?.branch || "main"}
         lastGitSync={gitConfig?.lastSyncTime}
-        onSyncGit={handleSyncGit}
+        onSyncGit={() => handleSyncGit(true)}
         isSyncingGit={isSyncingGit}
         totalSkillsCount={totalSkillsCount}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Main App Workspace Layout */}
@@ -429,7 +430,7 @@ export default function App() {
         />
 
         {/* Right Main Content Workspace */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-slate-950 relative">
+        <main className="flex-1 flex flex-col h-full overflow-hidden custom-app-bg relative">
           {selectedSkill ? (
             <SkillDetail
               skill={selectedSkill}
@@ -463,9 +464,11 @@ export default function App() {
         <SettingsModal
           themeConfig={themeConfig}
           onUpdateTheme={(cfg) => setThemeConfig((prev) => ({ ...prev, ...cfg }))}
+          palette={palette}
+          onUpdatePalette={handleUpdatePalette}
           gitConfig={gitConfig}
           onUpdateGitConfig={handleUpdateGitConfig}
-          onSyncGitNow={() => handleSyncGit(false)}
+          onSyncGitNow={() => handleSyncGit(true)}
           isSyncingGit={isSyncingGit}
           onClose={() => setIsSettingsOpen(false)}
           onExportAllJson={handleExportAllJson}

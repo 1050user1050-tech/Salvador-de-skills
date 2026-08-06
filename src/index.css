@@ -1,1 +1,58 @@
 @import "tailwindcss";
+
+:root {
+  --app-bg: #0f172a;
+  --app-surface: #1e293b;
+  --app-surface-hover: #334155;
+  --app-border: #334155;
+  --app-text: #f8fafc;
+  --app-text-muted: #94a3b8;
+
+  --app-accent: #6366f1;
+  --app-accent-hover: #4f46e5;
+  --app-accent-badge: rgba(99, 102, 241, 0.15);
+  --app-accent-contrast: #ffffff;
+}
+
+body {
+  background-color: var(--app-bg);
+  color: var(--app-text);
+  font-family: inherit;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Custom CSS classes for dynamic palette elements */
+.custom-app-bg {
+  background-color: var(--app-bg) !important;
+}
+
+.custom-app-surface {
+  background-color: var(--app-surface) !important;
+}
+
+.custom-app-border {
+  border-color: var(--app-border) !important;
+}
+
+.custom-app-accent-bg {
+  background-color: var(--app-accent) !important;
+  color: var(--app-accent-contrast) !important;
+}
+
+.custom-app-accent-bg:hover {
+  background-color: var(--app-accent-hover) !important;
+}
+
+.custom-app-accent-text {
+  color: var(--app-accent) !important;
+}
+
+.custom-app-accent-border {
+  border-color: var(--app-accent) !important;
+}
+
+.custom-app-accent-badge {
+  background-color: var(--app-accent-badge) !important;
+  color: var(--app-accent) !important;
+  border-color: var(--app-accent) !important;
+}

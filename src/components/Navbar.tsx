@@ -3,48 +3,30 @@ import {
   Folder,
   GitBranch,
   RefreshCw,
-  Sun,
-  Moon,
-  Laptop,
   Layers,
-  Sparkles,
-  Terminal,
-  CheckCircle,
-  HelpCircle
+  Palette,
+  Settings
 } from "lucide-react";
-import { ACCENT_COLORS } from "../utils/accentColors";
-import { ThemeConfig } from "../types/skill";
 
 interface NavbarProps {
   storagePath: string;
-  themeConfig: ThemeConfig;
-  onUpdateTheme: (config: Partial<ThemeConfig>) => void;
   gitBranch: string;
   lastGitSync?: string;
   onSyncGit: () => void;
   isSyncingGit: boolean;
   totalSkillsCount: number;
+  onOpenSettings: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   storagePath,
-  themeConfig,
-  onUpdateTheme,
   gitBranch,
   lastGitSync,
   onSyncGit,
   isSyncingGit,
   totalSkillsCount,
+  onOpenSettings,
 }) => {
-  const accent = ACCENT_COLORS[themeConfig.accent] || ACCENT_COLORS.indigo;
-
-  const toggleThemeMode = () => {
-    const modes: ("light" | "dark" | "system")[] = ["light", "dark", "system"];
-    const currentIndex = modes.indexOf(themeConfig.mode);
-    const nextMode = modes[(currentIndex + 1) % modes.length];
-    onUpdateTheme({ mode: nextMode });
-  };
-
   return (
     <header className="h-12 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between select-none z-10 shrink-0">
       {/* Left: Storage Path & Directory Breadcrumb */}
@@ -63,13 +45,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Right: Git Status, Sync, Theme Mode Toggle */}
+      {/* Right: Git Status, Sync, Settings & Color Personalization Button */}
       <div className="flex items-center gap-2">
         {/* Git Sync Button */}
         <button
           onClick={onSyncGit}
           disabled={isSyncingGit}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition disabled:opacity-50`}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition disabled:opacity-50 cursor-pointer"
           title={`Sincronizar Git (${gitBranch})`}
         >
           <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
@@ -79,21 +61,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           />
         </button>
 
-        {/* Theme Mode Toggle Button */}
+        {/* Settings & Color Personalization Button (Replaces buggy theme button) */}
         <button
-          onClick={toggleThemeMode}
-          className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
-          title={`Tema Atual: ${
-            themeConfig.mode === "light"
-              ? "Claro"
-              : themeConfig.mode === "dark"
-              ? "Escuro"
-              : "Sistema"
-          }`}
+          onClick={onOpenSettings}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition cursor-pointer shadow-2xs"
+          title="Abrir Configurações e Personalização de Cores"
         >
-          {themeConfig.mode === "light" && <Sun className="w-4 h-4 text-amber-500" />}
-          {themeConfig.mode === "dark" && <Moon className="w-4 h-4 text-indigo-400" />}
-          {themeConfig.mode === "system" && <Laptop className="w-4 h-4 text-cyan-500" />}
+          <Palette className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Aparência & Cores</span>
         </button>
       </div>
     </header>
