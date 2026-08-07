@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  prompt-skill-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: prompt_skill_manager
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      # - GEMINI_API_KEY=Sua_Chave_Gemini_Aqui # Descomente para ativar integração com IA Gemini
+    volumes:
+      - ./storage:/app/storage
+    restart: unless-stopped
