@@ -23,8 +23,8 @@ interface FolderTreeProps {
   onSelectFolder: (folderPath: string) => void;
   onCreateSkillInFolder: (folderRelativePath: string) => void;
   onCreateSubfolder: (parentFolderRelativePath: string) => void;
-  onRenameItem: (relativePath: string, name: string, type: "file" | "folder") => void;
-  onDeleteItem: (relativePath: string, type: "file" | "folder") => void;
+  onRenameItem: (relativePath: string, currentName: string, type: "file" | "folder") => void;
+  onDeleteItem: (relativePath: string, type: "file" | "folder", displayName?: string) => void;
   searchQuery: string;
   selectedTag: string | null;
 }
@@ -119,8 +119,8 @@ interface TreeNodeItemProps {
   onSelectFolder: (folderPath: string) => void;
   onCreateSkillInFolder: (folderRelativePath: string) => void;
   onCreateSubfolder: (parentFolderRelativePath: string) => void;
-  onRenameItem: (relativePath: string, name: string, type: "file" | "folder") => void;
-  onDeleteItem: (relativePath: string, type: "file" | "folder") => void;
+  onRenameItem: (relativePath: string, currentName: string, type: "file" | "folder") => void;
+  onDeleteItem: (relativePath: string, type: "file" | "folder", displayName?: string) => void;
 }
 
 const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
@@ -244,15 +244,10 @@ const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  const newName = prompt(
-                    `Novo nome para ${isFolder ? "pasta" : "skill"}:`,
-                    node.name.replace(".json", "")
-                  );
-                  if (newName && newName.trim()) {
-                    onRenameItem(node.relativePath, newName.trim(), isFolder ? "folder" : "file");
-                  }
+                  const displayName = isFolder ? node.name : (node.data?.titulo || node.name.replace(".json", ""));
+                  onRenameItem(node.relativePath, displayName, isFolder ? "folder" : "file");
                 }}
-                className="p-1 hover:text-cyan-600 dark:hover:text-cyan-400 rounded"
+                className="p-1 hover:text-cyan-600 dark:hover:text-cyan-400 rounded cursor-pointer"
                 title="Renomear"
               >
                 <Edit2 className="w-3 h-3" />
@@ -261,17 +256,10 @@ const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (
-                    confirm(
-                      `Tem certeza que deseja excluir ${
-                        isFolder ? "a pasta '" + node.name + "' e seu conteúdo" : "a skill '" + node.name + "'"
-                      }?`
-                    )
-                  ) {
-                    onDeleteItem(node.relativePath, isFolder ? "folder" : "file");
-                  }
+                  const displayName = isFolder ? node.name : (node.data?.titulo || node.name.replace(".json", ""));
+                  onDeleteItem(node.relativePath, isFolder ? "folder" : "file", displayName);
                 }}
-                className="p-1 hover:text-rose-600 dark:hover:text-rose-400 rounded"
+                className="p-1 hover:text-rose-600 dark:hover:text-rose-400 rounded cursor-pointer"
                 title="Excluir"
               >
                 <Trash2 className="w-3 h-3" />

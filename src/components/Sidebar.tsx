@@ -30,7 +30,7 @@ interface SidebarProps {
   onCreateSkillInFolder: (folderRelativePath: string) => void;
   onCreateSubfolder: (parentFolderRelativePath: string) => void;
   onRenameItem: (relativePath: string, name: string, type: "file" | "folder") => void;
-  onDeleteItem: (relativePath: string, type: "file" | "folder") => void;
+  onDeleteItem: (relativePath: string, type: "file" | "folder", displayName?: string) => void;
   onOpenSettings: () => void;
   onOpenNewSkillModal: () => void;
   onOpenNewFolderModal: () => void;

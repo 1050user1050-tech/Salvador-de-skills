@@ -11,6 +11,8 @@ import { SkillFormModal } from "./components/SkillFormModal";
 import { FolderFormModal } from "./components/FolderFormModal";
 import { PromptPlaygroundModal } from "./components/PromptPlaygroundModal";
 import { Dashboard } from "./components/Dashboard";
+import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
+import { RenameModal } from "./components/RenameModal";
 import { Sparkles, FolderOpen, FileCode, Layers, Plus } from "lucide-react";
 import { ACCENT_COLORS } from "./utils/accentColors";
 import {
@@ -71,6 +73,20 @@ export default function App() {
   const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
   const [editingSkillMetadata, setEditingSkillMetadata] = useState<Skill | null>(null);
   const [playgroundData, setPlaygroundData] = useState<{ promptText: string; title: string } | null>(null);
+
+  // Custom Delete & Rename Confirmation Modal States
+  const [itemToDelete, setItemToDelete] = useState<{
+    relativePath: string;
+    displayName: string;
+    type: "file" | "folder";
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const [itemToRename, setItemToRename] = useState<{
+    oldRelativePath: string;
+    currentName: string;
+    type: "file" | "folder";
+  } | null>(null);
 
   // Helper to add toast messages
   const addToast = (type: "success" | "error" | "info", title: string, description?: string) => {
@@ -234,13 +250,89 @@ export default function App() {
     addToast("success", `Versão ${newVersionName} Criada!`, "O histórico de versões foi atualizado com sucesso.");
   };
 
-  // Handler: Delete Skill
-  const handleDeleteSkill = async (relPath: string) => {
-    await StorageService.deleteSkill(relPath);
-    setSelectedSkill(null);
-    setSelectedSkillRelPath("");
-    await loadTree();
-    addToast("info", "Skill Excluída", "A pasta da skill e todo o seu conteúdo foram excluídos com sucesso.");
+  // Request Deletion (Opens Confirmation Modal)
+  const requestDeleteSkill = (relPath: string, displayName?: string) => {
+    const name = displayName || relPath.split("/").pop() || relPath;
+    setItemToDelete({
+      relativePath: relPath,
+      displayName: name,
+      type: "file"
+    });
+  };
+
+  const requestDeleteFolder = (relPath: string, displayName?: string) => {
+    const name = displayName || relPath.split("/").pop() || relPath;
+    setItemToDelete({
+      relativePath: relPath,
+      displayName: name,
+      type: "folder"
+    });
+  };
+
+  // Perform Deletion After User Confirms in Modal
+  const handleConfirmDelete = async () => {
+    if (!itemToDelete) return;
+    setIsDeleting(true);
+
+    try {
+      if (itemToDelete.type === "file") {
+        await StorageService.deleteSkill(itemToDelete.relativePath);
+        addToast(
+          "info",
+          "Skill Excluída",
+          `A skill '${itemToDelete.displayName}' e todo o seu conteúdo foram excluídos.`
+        );
+      } else {
+        await StorageService.deleteFolder(itemToDelete.relativePath);
+        addToast(
+          "info",
+          "Pasta Excluída",
+          `A pasta '${itemToDelete.displayName}' e todos os arquivos contidos foram removidos.`
+        );
+      }
+
+      // If deleted item is currently selected (or folder contains selected skill), clear selection
+      const isSelectedTarget =
+        selectedSkillRelPath === itemToDelete.relativePath ||
+        selectedSkillRelPath.startsWith(itemToDelete.relativePath + "/");
+
+      if (isSelectedTarget) {
+        setSelectedSkill(null);
+        setSelectedSkillRelPath("");
+      }
+
+      // Reload fresh tree
+      const data = await StorageService.getTree();
+      setTree(data.tree);
+      setStoragePath(data.storagePath);
+
+      // If selected skill was cleared, auto-select first available skill from fresh tree if present
+      if (isSelectedTarget) {
+        const findFirstSkill = (nodes: FileTreeNode[]): { skill: Skill; relPath: string } | null => {
+          for (const n of nodes) {
+            if (n.type === "file" && n.data) {
+              return { skill: n.data, relPath: n.relativePath };
+            }
+            if (n.children) {
+              const found = findFirstSkill(n.children);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+
+        const first = findFirstSkill(data.tree);
+        if (first) {
+          setSelectedSkill(first.skill);
+          setSelectedSkillRelPath(first.relPath);
+        }
+      }
+    } catch (err: any) {
+      addToast("error", "Erro ao Excluir", err.message || "Falha ao excluir o registro.");
+    } finally {
+      setIsDeleting(false);
+      setItemToDelete(null);
+    }
   };
 
   // Handler: Create Folder
@@ -250,21 +342,41 @@ export default function App() {
     addToast("success", "Pasta Criada", `A pasta '${folderPath}' foi criada no repositório.`);
   };
 
-  // Handler: Delete Folder
-  const handleDeleteFolder = async (relPath: string) => {
-    await StorageService.deleteFolder(relPath);
-    await loadTree();
-    addToast("info", "Pasta Removida", `A pasta '${relPath}' foi removida do sistema.`);
+  // Request Rename (Opens Rename Modal)
+  const requestRenameItem = (relativePath: string, currentName: string, type: "file" | "folder") => {
+    setItemToRename({
+      oldRelativePath: relativePath,
+      currentName,
+      type
+    });
   };
 
-  // Handler: Rename File / Folder
-  const handleRenameItem = async (oldRelPath: string, newRelPath: string) => {
-    await StorageService.renameItem(oldRelPath, newRelPath);
-    await loadTree();
-    if (selectedSkillRelPath === oldRelPath) {
-      setSelectedSkillRelPath(newRelPath);
+  // Perform Rename After User Submits Modal
+  const handleConfirmRename = async (newName: string) => {
+    if (!itemToRename) return;
+
+    try {
+      await StorageService.renameItem(itemToRename.oldRelativePath, newName, itemToRename.type);
+      const data = await StorageService.getTree();
+      setTree(data.tree);
+
+      if (selectedSkillRelPath === itemToRename.oldRelativePath) {
+        const dirParts = itemToRename.oldRelativePath.split("/");
+        dirParts.pop();
+        const cleanName = newName.endsWith(".json") ? newName : `${newName}.json`;
+        const newRel = dirParts.length > 0 ? `${dirParts.join("/")}/${cleanName}` : cleanName;
+        setSelectedSkillRelPath(newRel);
+        if (selectedSkill) {
+          setSelectedSkill({ ...selectedSkill, titulo: newName.replace(/\.json$/, "") });
+        }
+      }
+
+      addToast("success", "Item Renomeado", `Nome alterado para '${newName}'.`);
+    } catch (err: any) {
+      addToast("error", "Erro ao Renomear", err.message || "Não foi possível renomear o item.");
+    } finally {
+      setItemToRename(null);
     }
-    addToast("success", "Renomeado", "O caminho foi atualizado com sucesso.");
   };
 
   // Handler: Save / Create Skill from Form Modal
@@ -314,7 +426,7 @@ export default function App() {
   const handleSyncGit = async (manual = true) => {
     setIsSyncingGit(true);
     try {
-      const res = await GitService.sync();
+      const res = await GitService.syncRepo(gitConfig?.repoUrl || "", gitConfig?.branch || "main");
       if (res.success) {
         if (manual) {
           addToast("success", "Sincronização Git Concluída!", res.message);
@@ -415,10 +527,12 @@ export default function App() {
             setSelectedFolderPath(parentRel);
             setIsNewFolderModalOpen(true);
           }}
-          onRenameItem={handleRenameItem}
-          onDeleteItem={(relPath, type) => {
-            if (type === "file") handleDeleteSkill(relPath);
-            else handleDeleteFolder(relPath);
+          onRenameItem={(relPath, name, type) => {
+            requestRenameItem(relPath, name, type);
+          }}
+          onDeleteItem={(relPath, type, displayName) => {
+            if (type === "file") requestDeleteSkill(relPath, displayName);
+            else requestDeleteFolder(relPath, displayName);
           }}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenNewSkillModal={() => setIsNewSkillModalOpen(true)}
@@ -440,7 +554,7 @@ export default function App() {
               onCopyCompleteJson={handleCopyCompleteJson}
               onSaveCurrentVersionPrompt={handleSaveCurrentVersionPrompt}
               onSaveNewVersionPrompt={handleSaveNewVersionPrompt}
-              onDeleteSkill={handleDeleteSkill}
+              onDeleteSkill={(relPath, name) => requestDeleteSkill(relPath, name)}
               onEditSkillMetadata={(sk) => setEditingSkillMetadata(sk)}
               onOpenPlayground={(promptText, title) =>
                 setPlaygroundData({ promptText, title })
@@ -453,11 +567,36 @@ export default function App() {
               accentColor={themeConfig.accent}
               onSelectSkill={handleSelectSkill}
               onOpenNewSkillModal={() => setIsNewSkillModalOpen(true)}
-              onDeleteSkill={handleDeleteSkill}
+              onDeleteSkill={(relPath, name) => requestDeleteSkill(relPath, name)}
             />
           )}
         </main>
       </div>
+
+      {/* Confirm Delete Modal */}
+      {itemToDelete && (
+        <ConfirmDeleteModal
+          isOpen={Boolean(itemToDelete)}
+          itemName={itemToDelete.displayName}
+          itemType={itemToDelete.type}
+          relativePath={itemToDelete.relativePath}
+          isDeleting={isDeleting}
+          onConfirm={handleConfirmDelete}
+          onClose={() => setItemToDelete(null)}
+        />
+      )}
+
+      {/* Rename Item Modal */}
+      {itemToRename && (
+        <RenameModal
+          isOpen={Boolean(itemToRename)}
+          currentName={itemToRename.currentName}
+          itemType={itemToRename.type}
+          relativePath={itemToRename.oldRelativePath}
+          onRename={handleConfirmRename}
+          onClose={() => setItemToRename(null)}
+        />
+      )}
 
       {/* Settings Modal */}
       {isSettingsOpen && (

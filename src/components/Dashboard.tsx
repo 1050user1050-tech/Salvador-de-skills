@@ -23,7 +23,7 @@ interface DashboardProps {
   accentColor: keyof typeof ACCENT_COLORS;
   onSelectSkill: (skill: Skill, relativePath: string) => void;
   onOpenNewSkillModal: () => void;
-  onDeleteSkill: (relativePath: string) => void;
+  onDeleteSkill: (relativePath: string, displayName?: string) => void;
 }
 
 interface FlattenedSkill {
@@ -370,10 +370,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => {
-                        if (confirm(`Deseja apagar completamente a skill "${skill.titulo}"?`)) {
-                          onDeleteSkill(relativePath);
-                        }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSkill(relativePath, skill.titulo);
                       }}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition cursor-pointer"
                       title="Excluir Skill"

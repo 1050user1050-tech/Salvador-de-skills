@@ -233,13 +233,22 @@ export class StorageService {
   }
 
   // Create a Folder
-  public static async createFolder(parentFolder: string, folderName: string): Promise<boolean> {
+  public static async createFolder(parentFolderOrPath: string, folderName?: string): Promise<boolean> {
+    let parentFolder = parentFolderOrPath;
+    let name = folderName || "";
+
+    if (!folderName) {
+      const parts = parentFolderOrPath.split("/");
+      name = parts.pop() || "";
+      parentFolder = parts.join("/");
+    }
+
     if (this.isServerAvailable) {
       try {
         const res = await fetch("/api/skills/folder", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ parentFolder, folderName })
+          body: JSON.stringify({ parentFolder, folderName: name })
         });
         if (res.ok) return true;
       } catch (e) {
@@ -248,10 +257,10 @@ export class StorageService {
     }
 
     const { tree } = await this.getTree();
-    const relPath = parentFolder ? `${parentFolder}/${folderName}` : folderName;
+    const relPath = parentFolder ? `${parentFolder}/${name}` : name;
     const newFolderNode: FileTreeNode = {
       id: `dir_${relPath}`,
-      name: folderName,
+      name: name,
       path: `/skills/${relPath}`,
       relativePath: relPath,
       type: "folder",
@@ -265,6 +274,22 @@ export class StorageService {
     }
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tree));
     return true;
+  }
+
+  // Export All Skills
+  public static async exportAll(): Promise<string> {
+    const { tree } = await this.getTree();
+    const skillsList: Skill[] = [];
+    const extractSkills = (nodes: FileTreeNode[]) => {
+      nodes.forEach((n) => {
+        if (n.type === "file" && n.data) {
+          skillsList.push(n.data);
+        }
+        if (n.children) extractSkills(n.children);
+      });
+    };
+    extractSkills(tree);
+    return JSON.stringify(skillsList, null, 2);
   }
 
   // Delete a Folder

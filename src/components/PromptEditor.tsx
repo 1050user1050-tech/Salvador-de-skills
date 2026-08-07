@@ -19,6 +19,7 @@ interface PromptEditorProps {
   initialPrompt: string;
   versionName: string;
   accentColor: keyof typeof ACCENT_COLORS;
+  skillKey?: string;
   onSaveCurrentVersion: (prompt: string) => void;
   onSaveNewVersion: (prompt: string, versionName: string) => void;
   onCopyPrompt: (promptText: string) => void;
@@ -28,6 +29,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
   initialPrompt,
   versionName,
   accentColor,
+  skillKey,
   onSaveCurrentVersion,
   onSaveNewVersion,
   onCopyPrompt,
@@ -37,30 +39,75 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
   const [isNewVersionModalOpen, setIsNewVersionModalOpen] = useState(false);
   const [nextVersionName, setNextVersionName] = useState("");
 
+  // Storage key for temporary local buffer
+  const storageKey = `skill_draft_${skillKey || "default"}_${versionName}`;
+
   // Auto-save & Auto-versioning state
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
-  const [autoSaveIntervalMinutes, setAutoSaveIntervalMinutes] = useState(2); // Default 2 minutes
+  const [autoSaveDebounceSeconds, setAutoSaveDebounceSeconds] = useState(1.5); // Default 1.5s debounce
+  const [autoSaveIntervalMinutes, setAutoSaveIntervalMinutes] = useState(2); // Default 2 minutes fallback
   const [autoVersionEditsLimit, setAutoVersionEditsLimit] = useState(5); // Default 5 edits
   const [autoVersionTimeLimitMinutes, setAutoVersionTimeLimitMinutes] = useState(30); // Default 30 minutes
 
   const [editBatchCount, setEditBatchCount] = useState(0);
   const [lastVersionCreatedTime, setLastVersionCreatedTime] = useState<number>(Date.now());
   const [lastAutoSaveTime, setLastAutoSaveTime] = useState<string | null>(null);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "unsaved" | "buffered">("saved");
+  const [hasBufferedDraft, setHasBufferedDraft] = useState(false);
   const [showAutoSaveSettings, setShowAutoSaveSettings] = useState(false);
   const [copiedPromptText, setCopiedPromptText] = useState(false);
 
-  // Refs for tracking timestamps & intervals across renders
+  // Refs for tracking timestamps, debounces & latest values across unmounts/renders
   const lastSaveTimeRef = useRef<number>(Date.now());
   const editBatchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceAutoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceBufferTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Sync initialPrompt when switching skills or versions
+  const promptTextRef = useRef(promptText);
+  const initialPromptRef = useRef(initialPrompt);
+  const storageKeyRef = useRef(storageKey);
+
+  // Synchronize refs
   useEffect(() => {
-    setPromptText(initialPrompt);
-    setAutoSaveStatus("saved");
+    promptTextRef.current = promptText;
+  }, [promptText]);
+
+  useEffect(() => {
+    initialPromptRef.current = initialPrompt;
+    storageKeyRef.current = storageKey;
+  }, [initialPrompt, storageKey]);
+
+  // Sync initialPrompt and check local storage draft when switching skills or versions
+  useEffect(() => {
+    const cachedDraft = localStorage.getItem(storageKey);
+    if (cachedDraft && cachedDraft !== initialPrompt) {
+      setPromptText(cachedDraft);
+      setHasBufferedDraft(true);
+      setAutoSaveStatus("buffered");
+    } else {
+      setPromptText(initialPrompt);
+      setHasBufferedDraft(false);
+      setAutoSaveStatus("saved");
+    }
     setEditBatchCount(0);
     lastSaveTimeRef.current = Date.now();
-  }, [initialPrompt, versionName]);
+  }, [initialPrompt, versionName, storageKey]);
+
+  // Before unload / unmount safety: save buffer if there are pending unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (promptTextRef.current !== initialPromptRef.current) {
+        localStorage.setItem(storageKeyRef.current, promptTextRef.current);
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      if (promptTextRef.current !== initialPromptRef.current) {
+        localStorage.setItem(storageKeyRef.current, promptTextRef.current);
+      }
+    };
+  }, []);
 
   // Handle Ctrl+S or Cmd+S shortcut
   useEffect(() => {
@@ -109,10 +156,13 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
     });
   };
 
-  // Helper: Save Current Version
-  const triggerSaveCurrent = () => {
+  // Helper: Save Current Version & Clear Local Buffer
+  const triggerSaveCurrent = (textToSave?: string) => {
+    const content = textToSave !== undefined ? textToSave : promptText;
     setAutoSaveStatus("saving");
-    onSaveCurrentVersion(promptText);
+    onSaveCurrentVersion(content);
+    localStorage.removeItem(storageKey);
+    setHasBufferedDraft(false);
     const timeStr = getFormattedTime();
     setLastAutoSaveTime(timeStr);
     lastSaveTimeRef.current = Date.now();
@@ -124,6 +174,8 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
     setAutoSaveStatus("saving");
     const nextVer = suggestNextVersion();
     onSaveNewVersion(promptText, nextVer);
+    localStorage.removeItem(storageKey);
+    setHasBufferedDraft(false);
     const timeStr = getFormattedTime();
     setLastAutoSaveTime(timeStr);
     setEditBatchCount(0);
@@ -132,22 +184,53 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
     setTimeout(() => setAutoSaveStatus("saved"), 600);
   };
 
-  // Track edits count (batching keystrokes)
+  // Helper: Discard Changes and Clear Buffer
+  const handleDiscardChanges = () => {
+    setPromptText(initialPrompt);
+    localStorage.removeItem(storageKey);
+    setHasBufferedDraft(false);
+    setAutoSaveStatus("saved");
+  };
+
+  // Debounced input handler
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
     setPromptText(newText);
     setAutoSaveStatus("unsaved");
 
-    // Debounce batch edit counting (1 edit batch = pause of 1.5 seconds)
-    if (editBatchTimerRef.current) {
-      clearTimeout(editBatchTimerRef.current);
-    }
+    // 1. Immediately save to local buffer (localStorage) after 250ms delay
+    if (debounceBufferTimerRef.current) clearTimeout(debounceBufferTimerRef.current);
+    debounceBufferTimerRef.current = setTimeout(() => {
+      if (newText !== initialPrompt) {
+        localStorage.setItem(storageKey, newText);
+        setHasBufferedDraft(true);
+        if (autoSaveStatus !== "saving") setAutoSaveStatus("buffered");
+      } else {
+        localStorage.removeItem(storageKey);
+        setHasBufferedDraft(false);
+        setAutoSaveStatus("saved");
+      }
+    }, 250);
+
+    // 2. Debounce batch edit counting
+    if (editBatchTimerRef.current) clearTimeout(editBatchTimerRef.current);
     editBatchTimerRef.current = setTimeout(() => {
       setEditBatchCount((prev) => prev + 1);
-    }, 1500);
+    }, 1200);
+
+    // 3. Debounced Auto-Save to current version
+    if (debounceAutoSaveTimerRef.current) clearTimeout(debounceAutoSaveTimerRef.current);
+
+    if (autoSaveEnabled) {
+      debounceAutoSaveTimerRef.current = setTimeout(() => {
+        if (newText !== initialPrompt) {
+          triggerSaveCurrent(newText);
+        }
+      }, autoSaveDebounceSeconds * 1000);
+    }
   };
 
-  // Auto-Save and Auto-Versioning Engine Interval Loop
+  // Auto-Save Interval Engine (Fallback for periodic check / auto-versioning)
   useEffect(() => {
     if (!autoSaveEnabled) return;
 
@@ -156,22 +239,19 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
       const now = Date.now();
       const timeSinceLastSave = now - lastSaveTimeRef.current;
 
-      // Check if auto-save condition is met
       if (promptText !== initialPrompt && timeSinceLastSave >= intervalMs) {
         const timeSinceLastVersionMs = now - lastVersionCreatedTime;
         const timeLimitMs = autoVersionTimeLimitMinutes * 60 * 1000;
 
-        // Check Auto-Versioning criteria (5 edits OR 30 minutes since version creation)
         if (editBatchCount >= autoVersionEditsLimit) {
           triggerAutoVersion(`Atingido limite de ${autoVersionEditsLimit} edições`);
         } else if (timeSinceLastVersionMs >= timeLimitMs) {
           triggerAutoVersion(`Atingido limite de ${autoVersionTimeLimitMinutes} min de alterações`);
         } else {
-          // Regular current version auto-save
           triggerSaveCurrent();
         }
       }
-    }, 5000); // Check every 5 seconds for precision
+    }, 5000);
 
     return () => clearInterval(checkInterval);
   }, [
@@ -213,23 +293,37 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
               onClick={() => setShowAutoSaveSettings(!showAutoSaveSettings)}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-medium transition border ${
                 autoSaveEnabled
-                  ? "bg-green-50/80 dark:bg-green-950/60 border-green-200 dark:border-green-800/80 text-green-700 dark:text-green-300 hover:bg-green-100"
+                  ? autoSaveStatus === "saving"
+                    ? "bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300"
+                    : autoSaveStatus === "buffered"
+                    ? "bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300"
+                    : "bg-green-50/80 dark:bg-green-950/60 border-green-200 dark:border-green-800/80 text-green-700 dark:text-green-300 hover:bg-green-100"
                   : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500"
               }`}
               title="Clique para configurar parâmetros do auto-save e auto-versionamento"
             >
               {autoSaveEnabled ? (
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
+                <div
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    autoSaveStatus === "saving"
+                      ? "bg-amber-500 animate-spin"
+                      : autoSaveStatus === "buffered"
+                      ? "bg-indigo-500"
+                      : "bg-green-500 animate-pulse"
+                  }`}
+                />
               ) : (
                 <div className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
               )}
               <span>
                 {autoSaveStatus === "saving"
                   ? "SALVANDO..."
+                  : autoSaveStatus === "buffered"
+                  ? "RASCUNHO EM BUFFER"
                   : autoSaveEnabled
                   ? lastAutoSaveTime
                     ? `AUTO-SALVO (${lastAutoSaveTime})`
-                    : `AUTO-SAVE (${autoSaveIntervalMinutes}m)`
+                    : `AUTO-SAVE (${autoSaveDebounceSeconds}s)`
                   : "AUTO-SAVE PAUSADO"}
               </span>
               <Sliders className="w-3 h-3 opacity-60 ml-0.5" />
@@ -262,10 +356,27 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
                   />
                 </div>
 
-                {/* Interval Minutes */}
+                {/* Debounce Delay Seconds */}
                 <div className="space-y-1">
                   <label className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Intervalo de Auto-Save:
+                    Pausa ao Digitar (Debounce Delay):
+                  </label>
+                  <select
+                    value={autoSaveDebounceSeconds}
+                    onChange={(e) => setAutoSaveDebounceSeconds(Number(e.target.value))}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-1.5 text-xs text-slate-800 dark:text-slate-200"
+                  >
+                    <option value={1}>1.0 segundo (Rápido)</option>
+                    <option value={1.5}>1.5 segundos (Padrão)</option>
+                    <option value={3}>3.0 segundos</option>
+                    <option value={5}>5.0 segundos</option>
+                  </select>
+                </div>
+
+                {/* Fallback Interval Minutes */}
+                <div className="space-y-1">
+                  <label className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Verificação Periódica de Mudanças:
                   </label>
                   <select
                     value={autoSaveIntervalMinutes}
@@ -281,7 +392,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
                 {/* Auto Version Edits Limit */}
                 <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
                   <label className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Auto-Versão por Número de Edições:
+                    Auto-Criar Versão por N° de Edições:
                   </label>
                   <select
                     value={autoVersionEditsLimit}
@@ -291,22 +402,6 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
                     <option value={3}>Após 3 edições</option>
                     <option value={5}>Após 5 edições (Padrão)</option>
                     <option value={10}>Após 10 edições</option>
-                  </select>
-                </div>
-
-                {/* Auto Version Time Limit */}
-                <div className="space-y-1">
-                  <label className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Auto-Versão por Tempo Decorrido:
-                  </label>
-                  <select
-                    value={autoVersionTimeLimitMinutes}
-                    onChange={(e) => setAutoVersionTimeLimitMinutes(Number(e.target.value))}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-1.5 text-xs text-slate-800 dark:text-slate-200"
-                  >
-                    <option value={15}>A cada 15 minutos</option>
-                    <option value={30}>A cada 30 minutos (Padrão)</option>
-                    <option value={60}>A cada 60 minutos</option>
                   </select>
                 </div>
               </div>
@@ -389,6 +484,32 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Restored Local Draft Banner */}
+      {hasBufferedDraft && promptText !== initialPrompt && (
+        <div className="px-4 py-2 bg-amber-50 dark:bg-amber-950/70 border-b border-amber-200 dark:border-amber-800/80 flex items-center justify-between text-xs text-amber-900 dark:text-amber-100 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              <strong>Rascunho recuperado:</strong> Edições não salvas do buffer local foram restauradas.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => triggerSaveCurrent()}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] transition shadow-2xs cursor-pointer"
+            >
+              Salvar na Versão
+            </button>
+            <button
+              onClick={handleDiscardChanges}
+              className="px-2.5 py-1 bg-amber-200/80 dark:bg-amber-900/60 hover:bg-amber-300 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100 rounded-lg font-semibold text-[11px] transition cursor-pointer"
+            >
+              Descartar Rascunho
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Code Editor Body Simulator */}
       <div className="flex-1 relative min-h-[340px] bg-white dark:bg-slate-900 flex flex-col">

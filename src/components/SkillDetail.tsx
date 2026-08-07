@@ -36,7 +36,7 @@ interface SkillDetailProps {
   onCopyCompleteJson: (skillData: Skill) => void;
   onSaveCurrentVersionPrompt: (promptText: string, versionName: string) => void;
   onSaveNewVersionPrompt: (promptText: string, newVersionName: string) => void;
-  onDeleteSkill: (relativePath: string) => void;
+  onDeleteSkill: (relativePath: string, displayName?: string) => void;
   onEditSkillMetadata: (skill: Skill) => void;
   onOpenPlayground: (promptText: string, title: string) => void;
 }
@@ -103,8 +103,6 @@ export const SkillDetail: React.FC<SkillDetailProps> = ({
 
   // Image Delete Handler
   const handleDeleteAsset = async (fileName: string) => {
-    if (!confirm(`Deseja remover o anexo "${fileName}"?`)) return;
-
     const targetRelPath = skill.relativePath || relativePath;
     const success = await StorageService.deleteAsset(targetRelPath, fileName);
     if (success) {
@@ -191,11 +189,9 @@ export const SkillDetail: React.FC<SkillDetailProps> = ({
             {/* Delete Skill */}
             <button
               onClick={() => {
-                if (confirm(`Deseja realmente excluir a skill '${skill.titulo}'?`)) {
-                  onDeleteSkill(relativePath);
-                }
+                onDeleteSkill(skill.relativePath || relativePath, skill.titulo);
               }}
-              className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/80 transition"
+              className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/80 transition cursor-pointer"
               title="Excluir esta skill"
             >
               <Trash2 className="w-4 h-4" />
@@ -401,6 +397,7 @@ export const SkillDetail: React.FC<SkillDetailProps> = ({
             initialPrompt={currentVersion.conteudo_do_prompt}
             versionName={currentVersion.versao}
             accentColor={accentColor}
+            skillKey={skill.id || relativePath}
             onSaveCurrentVersion={(updatedPrompt) =>
               onSaveCurrentVersionPrompt(updatedPrompt, currentVersion.versao)
             }
